@@ -1,0 +1,34 @@
+FROM mcr.microsoft.com/dotnet/core/runtime:2.2-alpine3.9 AS base
+WORKDIR /app
+
+FROM mcr.microsoft.com/dotnet/core/sdk:2.2-alpine3.9 AS build
+WORKDIR /src
+RUN dotnet new console -n MyApp && \
+    dotnet add MyApp package IBM.Data.DB2.Core-lnx -v 1.3.0.100 && \
+    dotnet restore MyApp && \
+    echo $'using System;\n\
+using IBM.Data.DB2.Core;\n\
+class Program {\n\
+    static void Main() {\n\
+        try {\n\
+            using(var conn = new DB2Connection("Database=db;User ID=user;Password=password;Server=server:9089")) {\n\
+                var cmd = new DB2Command("SELECT 0 FROM systables WHERE tabid = 1;", conn);\n\
+                conn.Open();\n\
+                cmd.ExecuteScalar();\n\
+            }\n\
+        } catch (DB2Exception) { Console.WriteLine("A-okay"); }\n\
+    }\n\
+}\n' > ./MyApp/Program.cs
+
+    
+FROM build AS publish
+RUN dotnet publish MyApp -c Release -o /app /p:platform=x64 --no-restore
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app .
+ENV LD_LIBRARY_PATH="/app/clidriver/lib:/app/clidriver/lib/icc"
+#ENV COREHOST_TRACE=1
+#ENV COREHOST_TRACE_VERBOSITY=4
+#ENV LD_DEBUG=all
+ENTRYPOINT ["dotnet", "MyApp.dll"]
